@@ -31,7 +31,7 @@
 
     const photo=document.querySelector('#photo'),ready=document.querySelector('#ready'),success=document.querySelector('#success'),take=document.querySelector('#takePhoto');
     const authModal=document.querySelector('#authModal'),authForm=document.querySelector('#authForm'),authTitle=document.querySelector('#authTitle'),authIntro=document.querySelector('#authIntro'),authError=document.querySelector('#authError'),authSubmit=document.querySelector('#authSubmit'),nameLabel=document.querySelector('#nameLabel'),authName=document.querySelector('#authName'),authEmail=document.querySelector('#authEmail'),authPassword=document.querySelector('#authPassword');
-    let authMode='register',profile=null,logs=[],stopLogs=null;
+    let authMode='register',profile=null,logs=[],stopLogs=null,isAdmin=false;
 
     function esc(value){return String(value||'').replace(/[&<>'"]/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]))}
     function showAuth(mode='register'){
@@ -44,7 +44,7 @@
     function reset(){photo.value='';ready.classList.add('hidden');success.classList.add('hidden');take.classList.remove('hidden')}
     function counts(){const result=new Map();for(const log of logs)result.set(log.uid,(result.get(log.uid)||0)+1);return result}
     function draw(){
-      const account=document.querySelector('#accountButton'),logged=Boolean(auth.currentUser&&profile);account.textContent=logged?`♛ ${profile.name} • ${profile.role==='admin'?'Admin':'Medlem'}`:'Skapa konto / logga in';
+      const account=document.querySelector('#accountButton'),logged=Boolean(auth.currentUser&&profile);account.textContent=logged?`♛ ${profile.name} • ${isAdmin?'Admin':'Medlem'}`:'Skapa konto / logga in';
       account.onclick=()=>logged?signOut(auth):showAuth('login');
       if(!logged){document.querySelector('#total').textContent='0';document.querySelector('#place').textContent='–';document.querySelector('#leaderboard').innerHTML='<p class="sub" style="margin-top:18px">Logga in för att se ligan.</p>';return}
       const totals=counts(),players=[...new Map(logs.map(log=>[log.uid,log.name])).entries()].map(([uid,name])=>({uid,name,total:totals.get(uid)||0})).sort((a,b)=>b.total-a.total||a.name.localeCompare(b.name,'sv'));
@@ -56,6 +56,9 @@
       const snap=await getDoc(doc(db,'profiles',user.uid));profile=snap.exists()?snap.data():null;
       if(!profile){showAuth('register');return}
       authModal.classList.remove('show');draw();
+    }
+    async function checkAdmin(){
+      try{await getDoc(doc(db,'admin','access'));isAdmin=true}catch{isAdmin=false}
     }
     function listenToLogs(){
       if(stopLogs)stopLogs();stopLogs=onSnapshot(query(collection(db,'logs'),orderBy('createdAt','desc')),snapshot=>{logs=snapshot.docs.map(item=>({id:item.id,...item.data()}));draw()},error=>{console.error(error);authError.textContent='Kunde inte läsa ligan ännu. Försök igen om en stund.'});
@@ -86,7 +89,7 @@
     };
     const modal=document.querySelector('#modal');document.querySelector('#openInvite').onclick=()=>modal.classList.add('show');[document.querySelector('#closeInvite'),document.querySelector('#closeButton')].forEach(item=>item.onclick=()=>modal.classList.remove('show'));
     document.querySelector('#registerTab').onclick=()=>showAuth('register');document.querySelector('#loginTab').onclick=()=>showAuth('login');authForm.onsubmit=submitAuth;
-    onAuthStateChanged(auth,async user=>{profile=null;reset();if(!user){if(stopLogs)stopLogs();logs=[];draw();showAuth('register');return}await loadProfile(user);listenToLogs()});
+    onAuthStateChanged(auth,async user=>{profile=null;isAdmin=false;reset();if(!user){if(stopLogs)stopLogs();logs=[];draw();showAuth('register');return}await checkAdmin();await loadProfile(user);listenToLogs()});
   </script>
 </body>
 </html>
