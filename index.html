@@ -17,33 +17,76 @@
     <section class="card board"><div class="boardhead"><div><div class="eyebrow">Leaderboard</div><h2>Veckans ställning</h2></div><a>Hela ligan ›</a></div><div id="leaderboard"></div></section>
   </main>
   <div class="modal" id="modal"><div class="dialog"><button class="close" id="closeInvite">×</button><div class="iconbox">♙</div><h2>Bjud in till ligan</h2><p>Skanna koden för att öppna Loggen direkt.</p><div class="qr"><img src="invite-qr.png" alt="QR-kod till Loggen" style="width:100%;display:block"></div><div class="url" id="inviteUrl"></div><button class="confirm" id="closeButton">Stäng</button></div></div>
-  <div class="modal" id="authModal"><div class="dialog"><div class="iconbox">#2</div><h2 id="authTitle">Gå med i Loggen</h2><p id="authIntro">Skapa din egen profil innan du lämnar din första insats.</p><div class="auth-tabs"><button id="registerTab" class="active" type="button">Skapa konto</button><button id="loginTab" type="button">Logga in</button></div><form class="auth-form" id="authForm"><label class="label" id="nameLabel">Namn<input id="authName" autocomplete="name" required maxlength="24" placeholder="Ditt namn i ligan"></label><label class="label">Mejl<input id="authEmail" type="email" autocomplete="email" required placeholder="du@exempel.se"></label><label class="label">Lösenord<input id="authPassword" type="password" autocomplete="new-password" required minlength="4" placeholder="Minst 4 tecken"></label><small class="form-error" id="authError"></small><button class="confirm" id="authSubmit" type="submit">Skapa profil</button><small class="form-note">Profilen sparas bara i den här webbläsaren.</small></form></div></div>
-  <script>
-    const seedPlayers=[['Micke',16,'a2'],['Sara',14,'a3'],['Johan',11,'a4']];
-    const storage={users:'loggen-users-v1',session:'loggen-session-v1'};
+  <div class="modal" id="authModal"><div class="dialog"><div class="iconbox">#2</div><h2 id="authTitle">Gå med i Loggen</h2><p id="authIntro">Skapa din egen profil innan du lämnar din första insats.</p><div class="auth-tabs"><button id="registerTab" class="active" type="button">Skapa konto</button><button id="loginTab" type="button">Logga in</button></div><form class="auth-form" id="authForm"><label class="label" id="nameLabel">Namn<input id="authName" autocomplete="name" required maxlength="24" placeholder="Ditt namn i ligan"></label><label class="label">Mejl<input id="authEmail" type="email" autocomplete="email" required placeholder="du@exempel.se"></label><label class="label">Lösenord<input id="authPassword" type="password" autocomplete="new-password" required minlength="4" placeholder="Minst 6 tecken"></label><small class="form-error" id="authError"></small><button class="confirm" id="authSubmit" type="submit">Skapa profil</button><small class="form-note">Konton och ligans loggar sparas säkert för hela gruppen.</small></form></div></div>
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js';
+    import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, deleteUser } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js';
+    import { getFirestore, collection, doc, getDoc, setDoc, addDoc, serverTimestamp, onSnapshot, query, orderBy } from 'https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js';
+
+    const firebaseConfig={apiKey:'AIzaSyDskuMJCvLKSKqFg5Lad-3IfUf_rQT1agg',authDomain:'loggen-ff80d.firebaseapp.com',projectId:'loggen-ff80d',storageBucket:'loggen-ff80d.firebasestorage.app',messagingSenderId:'1065949955518',appId:'1:1065949955518:web:a1db21ddd24707290365ef'};
+    const app=initializeApp(firebaseConfig),auth=getAuth(app),db=getFirestore(app);
+    const INVITE_CODE=new URLSearchParams(location.search).get('invite')||'loggen-2026';
+    const inviteUrl='https://danielwennman.github.io/loggen/?invite=loggen-2026';
+    document.querySelector('#inviteUrl').textContent=inviteUrl;
+
     const photo=document.querySelector('#photo'),ready=document.querySelector('#ready'),success=document.querySelector('#success'),take=document.querySelector('#takePhoto');
     const authModal=document.querySelector('#authModal'),authForm=document.querySelector('#authForm'),authTitle=document.querySelector('#authTitle'),authIntro=document.querySelector('#authIntro'),authError=document.querySelector('#authError'),authSubmit=document.querySelector('#authSubmit'),nameLabel=document.querySelector('#nameLabel'),authName=document.querySelector('#authName'),authEmail=document.querySelector('#authEmail'),authPassword=document.querySelector('#authPassword');
-    let authMode='register';
-    let currentUser=readSession();
-    const inviteUrl='https://danielwennman.github.io/loggen/';document.querySelector('#inviteUrl').textContent=inviteUrl;
+    let authMode='register',profile=null,logs=[],stopLogs=null;
 
-    function users(){try{return JSON.parse(localStorage.getItem(storage.users))||[]}catch{return[]}}
-    function readSession(){try{return JSON.parse(localStorage.getItem(storage.session))}catch{return null}}
-    async function passwordHash(value){const bytes=new TextEncoder().encode(value);const hash=await crypto.subtle.digest('SHA-256',bytes);return Array.from(new Uint8Array(hash)).map(byte=>byte.toString(16).padStart(2,'0')).join('')}
-    function saveSession(user){currentUser=user;localStorage.setItem(storage.session,JSON.stringify(user));syncUI()}
-    function showAuth(mode='register'){authMode=mode;const login=mode==='login';document.querySelector('#registerTab').classList.toggle('active',!login);document.querySelector('#loginTab').classList.toggle('active',login);authTitle.textContent=login?'Välkommen tillbaka':'Gå med i Loggen';authIntro.textContent=login?'Logga in för att fortsätta din klättring.':'Skapa din egen profil innan du lämnar din första insats.';nameLabel.classList.toggle('hidden',login);authName.required=!login;authPassword.autocomplete=login?'current-password':'new-password';authSubmit.textContent=login?'Logga in':'Skapa profil';authError.textContent='';authForm.reset();authModal.classList.add('show');setTimeout(()=>login?authEmail.focus():authName.focus(),50)}
-    function syncUI(){const signedIn=Boolean(currentUser);document.querySelector('#accountButton').textContent=signedIn?`♛ ${currentUser.name} • ${currentUser.admin?'Admin':'Medlem'}`:'Skapa konto / logga in';document.querySelector('#accountButton').onclick=()=>signedIn?logout():showAuth('login');if(!signedIn){authModal.classList.add('show')}else{authModal.classList.remove('show')}draw()}
-    function logout(){localStorage.removeItem(storage.session);currentUser=null;reset();syncUI()}
-    function draw(){const me=currentUser?[currentUser.name,currentUser.logs||0,'a1',true]:null;const rows=[...(me?[me]:[]),...seedPlayers].sort((a,b)=>b[1]-a[1]);document.querySelector('#leaderboard').innerHTML=rows.map((p,i)=>`<div class="row"><div class="rank ${i===0?'gold':''}">${i===0?'♛':i+1}</div><div class="avatar ${p[2]}">${p[0].slice(0,1).toUpperCase()}</div><b>${p[0]}</b><span>${p[3]?'du':i===1?'+2':i===2?'+1':'–'}</span><strong>${p[1]}</strong></div>`).join('');const rank=me?rows.findIndex(p=>p[3])+1:0;document.querySelector('#total').textContent=currentUser?.logs||0;document.querySelector('#place').textContent=rank?`#${rank}`:'–'}
-    async function submitAuth(event){event.preventDefault();const email=authEmail.value.trim().toLowerCase(),password=authPassword.value;const all=users();if(authMode==='register'){const name=authName.value.trim();if(!name){authError.textContent='Skriv namnet som ska synas i ligan.';return}if(all.some(user=>user.email===email)){authError.textContent='Det finns redan ett konto med den mejladressen.';return}const user={name,email,passwordHash:await passwordHash(password),logs:0,admin:all.length===0};all.push(user);localStorage.setItem(storage.users,JSON.stringify(all));saveSession(user);return}const found=all.find(user=>user.email===email);if(!found||found.passwordHash!==await passwordHash(password)){authError.textContent='Fel mejl eller lösenord.';return}saveSession(found)}
-    take.onclick=()=>currentUser?photo.click():showAuth('register');
+    function esc(value){return String(value||'').replace(/[&<>'"]/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]))}
+    function showAuth(mode='register'){
+      authMode=mode;const login=mode==='login';
+      document.querySelector('#registerTab').classList.toggle('active',!login);document.querySelector('#loginTab').classList.toggle('active',login);
+      authTitle.textContent=login?'Välkommen tillbaka':'Gå med i Loggen';
+      authIntro.textContent=login?'Logga in för att fortsätta din klättring.':'Skapa en egen profil med länken från QR-koden.';
+      nameLabel.classList.toggle('hidden',login);authName.required=!login;authPassword.autocomplete=login?'current-password':'new-password';authSubmit.textContent=login?'Logga in':'Skapa profil';authError.textContent='';authForm.reset();authModal.classList.add('show');
+    }
+    function reset(){photo.value='';ready.classList.add('hidden');success.classList.add('hidden');take.classList.remove('hidden')}
+    function counts(){const result=new Map();for(const log of logs)result.set(log.uid,(result.get(log.uid)||0)+1);return result}
+    function draw(){
+      const account=document.querySelector('#accountButton'),logged=Boolean(auth.currentUser&&profile);account.textContent=logged?`♛ ${profile.name} • ${profile.role==='admin'?'Admin':'Medlem'}`:'Skapa konto / logga in';
+      account.onclick=()=>logged?signOut(auth):showAuth('login');
+      if(!logged){document.querySelector('#total').textContent='0';document.querySelector('#place').textContent='–';document.querySelector('#leaderboard').innerHTML='<p class="sub" style="margin-top:18px">Logga in för att se ligan.</p>';return}
+      const totals=counts(),players=[...new Map(logs.map(log=>[log.uid,log.name])).entries()].map(([uid,name])=>({uid,name,total:totals.get(uid)||0})).sort((a,b)=>b.total-a.total||a.name.localeCompare(b.name,'sv'));
+      const mine=players.findIndex(player=>player.uid===auth.currentUser.uid),total=totals.get(auth.currentUser.uid)||0;
+      document.querySelector('#total').textContent=total;document.querySelector('#place').textContent=mine>=0?`#${mine+1}`:'–';
+      document.querySelector('#leaderboard').innerHTML=players.length?players.map((player,index)=>`<div class="row"><div class="rank ${index===0?'gold':''}">${index===0?'♛':index+1}</div><div class="avatar ${index%4===0?'a1':index%4===1?'a2':index%4===2?'a3':'a4'}">${esc(player.name).slice(0,1).toUpperCase()}</div><b>${esc(player.name)}</b><span>${player.uid===auth.currentUser.uid?'du':''}</span><strong>${player.total}</strong></div>`).join(''):'<p class="sub" style="margin-top:18px">Ingen har satt första spåret ännu.</p>';
+    }
+    async function loadProfile(user){
+      const snap=await getDoc(doc(db,'profiles',user.uid));profile=snap.exists()?snap.data():null;
+      if(!profile){showAuth('register');return}
+      authModal.classList.remove('show');draw();
+    }
+    function listenToLogs(){
+      if(stopLogs)stopLogs();stopLogs=onSnapshot(query(collection(db,'logs'),orderBy('createdAt','desc')),snapshot=>{logs=snapshot.docs.map(item=>({id:item.id,...item.data()}));draw()},error=>{console.error(error);authError.textContent='Kunde inte läsa ligan ännu. Försök igen om en stund.'});
+    }
+    async function submitAuth(event){
+      event.preventDefault();authError.textContent='';authSubmit.disabled=true;
+      const email=authEmail.value.trim(),password=authPassword.value;
+      try{
+        if(authMode==='login'){await signInWithEmailAndPassword(auth,email,password);return}
+        const name=authName.value.trim();if(!name)throw new Error('Skriv namnet som ska synas i ligan.');
+        const credential=await createUserWithEmailAndPassword(auth,email,password);
+        try{await setDoc(doc(db,'profiles',credential.user.uid),{name,role:'member',inviteCode:INVITE_CODE,joinedAt:serverTimestamp()});profile={name,role:'member'};authModal.classList.remove('show');draw();listenToLogs()}
+        catch(error){await deleteUser(credential.user);throw new Error('Inbjudan kunde inte godkännas. Använd QR-länken du fick.');}
+      }catch(error){authError.textContent=error.message==='Firebase: Error (auth/email-already-in-use).'?'Det finns redan ett konto med den mejladressen.':error.message==='Firebase: Error (auth/invalid-credential).'?'Fel mejl eller lösenord.':error.message.replace(/^Firebase: Error \([^)]*\)\.?\s*/,'')}
+      finally{authSubmit.disabled=false}
+    }
+    async function makeProof(file){
+      const source=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>{const image=new Image();image.onload=()=>resolve(image);image.onerror=reject;image.src=reader.result};reader.onerror=reject;reader.readAsDataURL(file)});
+      const scale=Math.min(1,320/Math.max(source.width,source.height)),canvas=document.createElement('canvas');canvas.width=Math.round(source.width*scale);canvas.height=Math.round(source.height*scale);canvas.getContext('2d').drawImage(source,0,0,canvas.width,canvas.height);return canvas.toDataURL('image/jpeg',.55);
+    }
+    take.onclick=()=>auth.currentUser&&profile?photo.click():showAuth('register');
     photo.onchange=()=>{if(photo.files[0]){take.classList.add('hidden');ready.classList.remove('hidden')}};
     document.querySelector('#discard').onclick=reset;document.querySelector('#again').onclick=reset;
-    function reset(){photo.value='';ready.classList.add('hidden');success.classList.add('hidden');take.classList.remove('hidden')}
-    document.querySelector('#confirm').onclick=()=>{if(!currentUser)return showAuth('register');currentUser.logs=(currentUser.logs||0)+1;const all=users().map(user=>user.email===currentUser.email?currentUser:user);localStorage.setItem(storage.users,JSON.stringify(all));saveSession(currentUser);ready.classList.add('hidden');success.classList.remove('hidden');document.querySelector('#time').textContent=new Intl.DateTimeFormat('sv-SE',{hour:'2-digit',minute:'2-digit'}).format(new Date());document.querySelector('#consistencyResult').textContent='Konsistens: '+document.querySelector('#consistency').value+'.'};
-    const modal=document.querySelector('#modal');document.querySelector('#openInvite').onclick=()=>modal.classList.add('show');[document.querySelector('#closeInvite'),document.querySelector('#closeButton')].forEach(x=>x.onclick=()=>modal.classList.remove('show'));
+    document.querySelector('#confirm').onclick=async()=>{
+      if(!auth.currentUser||!profile)return showAuth('register');if(!photo.files[0])return;const button=document.querySelector('#confirm');button.disabled=true;button.textContent='Loggar…';
+      try{const proof=await makeProof(photo.files[0]);await addDoc(collection(db,'logs'),{uid:auth.currentUser.uid,name:profile.name,createdAt:serverTimestamp(),consistency:document.querySelector('#consistency').value,note:document.querySelector('#note').value.trim().slice(0,140),proof});ready.classList.add('hidden');success.classList.remove('hidden');document.querySelector('#time').textContent=new Intl.DateTimeFormat('sv-SE',{hour:'2-digit',minute:'2-digit'}).format(new Date());document.querySelector('#consistencyResult').textContent='Konsistens: '+document.querySelector('#consistency').value+'.'}
+      catch(error){alert('Det gick inte att spara loggen ännu. Försök igen.');console.error(error)}finally{button.disabled=false;button.textContent='✦ Bekräfta och logga'}
+    };
+    const modal=document.querySelector('#modal');document.querySelector('#openInvite').onclick=()=>modal.classList.add('show');[document.querySelector('#closeInvite'),document.querySelector('#closeButton')].forEach(item=>item.onclick=()=>modal.classList.remove('show'));
     document.querySelector('#registerTab').onclick=()=>showAuth('register');document.querySelector('#loginTab').onclick=()=>showAuth('login');authForm.onsubmit=submitAuth;
-    syncUI();
+    onAuthStateChanged(auth,async user=>{profile=null;reset();if(!user){if(stopLogs)stopLogs();logs=[];draw();showAuth('register');return}await loadProfile(user);listenToLogs()});
   </script>
 </body>
 </html>
